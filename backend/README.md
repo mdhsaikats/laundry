@@ -8,7 +8,7 @@ Go backend server for the LaundryPro laundry service application.
 - JWT authentication
 - Password hashing with bcrypt
 - CORS support
-- PostgreSQL database
+- MySQL database
 
 ## Environment Variables
 
@@ -16,9 +16,9 @@ Create a `.env` file in the backend directory:
 
 ```env
 DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
 DB_NAME=laundry
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 PORT=8080
@@ -31,13 +31,20 @@ PORT=8080
 go mod download
 ```
 
-2. Set up PostgreSQL database:
+2. Set up MySQL database:
 ```bash
+# Login to MySQL
+mysql -u root -p
+
 # Create database
-createdb laundry
+CREATE DATABASE laundry CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE laundry;
 
 # Run schema
-psql -d laundry -f ../database/schema.sql
+SOURCE ../database/schema.sql;
+
+# Or from command line:
+mysql -u root -p laundry < ../database/schema.sql
 ```
 
 ## Running the Server

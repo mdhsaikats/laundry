@@ -14,8 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -172,16 +172,17 @@ func main() {
 // Initialize database connection
 func initDB() {
 	dbHost := getEnv("DB_HOST", "localhost")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbUser := getEnv("DB_USER", "postgres")
-	dbPassword := getEnv("DB_PASSWORD", "postgres")
+	dbPort := getEnv("DB_PORT", "3306")
+	dbUser := getEnv("DB_USER", "root")
+	dbPassword := getEnv("DB_PASSWORD", "29112003")
 	dbName := getEnv("DB_NAME", "laundry")
 
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		dbHost, dbPort, dbUser, dbPassword, dbName)
+	// MySQL DSN format: username:password@tcp(host:port)/dbname?parseTime=true
+	connStr := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
+		dbUser, dbPassword, dbHost, dbPort, dbName)
 
 	var err error
-	db, err = sql.Open("postgres", connStr)
+	db, err = sql.Open("mysql", connStr)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
@@ -248,20 +249,27 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert user
-	var userID int
-	err = db.QueryRow(
-		"INSERT INTO users (email, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id",
+	result, err := db.Exec(
+		"INSERT INTO users (email, password_hash, full_name) VALUES (?, ?, ?)",
 		req.Email, string(hashedPassword), req.FullName,
-	).Scan(&userID)
+	)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "duplicate") {
+		if strings.Contains(err.Error(), "Duplicate") || strings.Contains(err.Error(), "duplicate") {
 			respondError(w, http.StatusConflict, "Email already exists")
 		} else {
 			respondError(w, http.StatusInternalServerError, "Failed to create user")
 		}
 		return
 	}
+
+	// Get last insert ID
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to get user ID")
+		return
+	}
+	userID := int(lastID)
 
 	// Get user
 	user, err := getUserByID(userID)
@@ -290,7 +298,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Get user by email
 	var userID int
 	var passwordHash string
-	err := db.QueryRow("SELECT id, password_hash FROM users WHERE email = $1", req.Email).
+	err := db.QueryRow("SELECT id, password_hash FROM users WHERE email = ?", req.Email).
 		Scan(&userID, &passwordHash)
 
 	if err != nil {
@@ -371,7 +379,7 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT id, user_id, status, total_amount, COALESCE(notes, ''), created_at 
 		FROM orders 
-		WHERE user_id = $1 
+		WHERE user_id = ? 
 		ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
@@ -392,7 +400,7 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 			SELECT oi.id, oi.order_id, oi.laundry_item_id, li.name, oi.quantity, oi.services, oi.item_total
 			FROM order_items oi
 			JOIN laundry_items li ON oi.laundry_item_id = li.id
-			WHERE oi.order_id = $1
+			WHERE oi.order_id = ?
 		`, order.ID)
 		if err == nil {
 			defer itemRows.Close()
@@ -432,24 +440,29 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	// Insert order
-	var orderID int
-	err = tx.QueryRow(`
+	result, err := tx.Exec(`
 		INSERT INTO orders (user_id, status, total_amount, notes) 
-		VALUES ($1, 'pending', $2, $3) 
-		RETURNING id
-	`, userID, req.TotalAmount, req.Notes).Scan(&orderID)
+		VALUES (?, 'pending', ?, ?)
+	`, userID, req.TotalAmount, req.Notes)
 
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to create order")
 		return
 	}
 
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to get order ID")
+		return
+	}
+	orderID := int(lastID)
+
 	// Insert order items
 	for _, item := range req.Items {
 		servicesJSON, _ := json.Marshal(item.Services)
 		_, err = tx.Exec(`
 			INSERT INTO order_items (order_id, laundry_item_id, quantity, services, item_total)
-			VALUES ($1, $2, $3, $4, $5)
+			VALUES (?, ?, ?, ?, ?)
 		`, orderID, item.LaundryItemID, item.Quantity, string(servicesJSON), item.ItemTotal)
 
 		if err != nil {
@@ -476,7 +489,7 @@ func getUserByID(id int) (*User, error) {
 	err := db.QueryRow(`
 		SELECT id, email, full_name, COALESCE(phone, ''), COALESCE(address, ''), created_at 
 		FROM users 
-		WHERE id = $1
+		WHERE id = ?
 	`, id).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.Address, &user.CreatedAt)
 
 	if err != nil {
