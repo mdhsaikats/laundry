@@ -32,6 +32,8 @@ type User struct {
 	FullName  string    `json:"full_name"`
 	Phone     string    `json:"phone,omitempty"`
 	Address   string    `json:"address,omitempty"`
+	Role      string    `json:"role"`
+	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -51,13 +53,15 @@ type Service struct {
 }
 
 type Order struct {
-	ID          int         `json:"id"`
-	UserID      int         `json:"user_id"`
-	Status      string      `json:"status"`
-	TotalAmount float64     `json:"total_amount"`
-	Notes       string      `json:"notes,omitempty"`
-	CreatedAt   time.Time   `json:"created_at"`
-	Items       []OrderItem `json:"items,omitempty"`
+	ID              int         `json:"id"`
+	UserID          int         `json:"user_id"`
+	Status          string      `json:"status"`
+	TotalAmount     float64     `json:"total_amount"`
+	PickupAddress   string      `json:"pickup_address,omitempty"`
+	DeliveryAddress string      `json:"delivery_address,omitempty"`
+	Notes           string      `json:"notes,omitempty"`
+	CreatedAt       time.Time   `json:"created_at"`
+	Items           []OrderItem `json:"items,omitempty"`
 }
 
 type OrderItem struct {
@@ -73,6 +77,7 @@ type OrderItem struct {
 type Claims struct {
 	UserID int    `json:"user_id"`
 	Email  string `json:"email"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -81,6 +86,8 @@ type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
+	Address  string `json:"address"`
 }
 
 type LoginRequest struct {
@@ -94,9 +101,11 @@ type AuthResponse struct {
 }
 
 type CreateOrderRequest struct {
-	TotalAmount float64              `json:"total_amount"`
-	Notes       string               `json:"notes"`
-	Items       []CreateOrderItemReq `json:"items"`
+	TotalAmount     float64              `json:"total_amount"`
+	PickupAddress   string               `json:"pickup_address"`
+	DeliveryAddress string               `json:"delivery_address"`
+	Notes           string               `json:"notes"`
+	Items           []CreateOrderItemReq `json:"items"`
 }
 
 type CreateOrderItemReq struct {
@@ -155,6 +164,18 @@ func main() {
 			r.Get("/orders", getOrders)
 			r.Post("/orders", createOrder)
 		})
+
+		// Admin routes
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware)
+			r.Use(adminMiddleware)
+
+			// Admin Orders Management
+			r.Get("/admin/orders", getAllOrders)
+			r.Get("/admin/orders/search", searchOrders)
+			r.Put("/admin/orders/{orderID}/status", updateOrderStatus)
+			r.Get("/admin/stats", getAdminStats)
+		})
 	})
 
 	// Start server
@@ -174,7 +195,7 @@ func initDB() {
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "3306")
 	dbUser := getEnv("DB_USER", "root")
-	dbPassword := getEnv("DB_PASSWORD", "29112003")
+	dbPassword := getEnv("DB_PASSWORD", "2911")
 	dbName := getEnv("DB_NAME", "laundry")
 
 	// MySQL DSN format: username:password@tcp(host:port)/dbname?parseTime=true
@@ -221,8 +242,21 @@ func authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add user ID to context
+		// Add user info to headers
 		r.Header.Set("X-User-ID", strconv.Itoa(claims.UserID))
+		r.Header.Set("X-User-Role", claims.Role)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Admin middleware - checks if user has admin role
+func adminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := r.Header.Get("X-User-Role")
+		if role != "admin" {
+			respondError(w, http.StatusForbidden, "Admin access required")
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -250,8 +284,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Insert user
 	result, err := db.Exec(
-		"INSERT INTO users (email, password_hash, full_name) VALUES (?, ?, ?)",
-		req.Email, string(hashedPassword), req.FullName,
+		"INSERT INTO users (email, password_hash, full_name, phone, address) VALUES (?, ?, ?, ?, ?)",
+		req.Email, string(hashedPassword), req.FullName, req.Phone, req.Address,
 	)
 
 	if err != nil {
@@ -377,7 +411,9 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := db.Query(`
-		SELECT id, user_id, status, total_amount, COALESCE(notes, ''), created_at 
+		SELECT id, user_id, status, total_amount, 
+		       COALESCE(pickup_address, ''), COALESCE(delivery_address, ''), 
+		       COALESCE(notes, ''), created_at 
 		FROM orders 
 		WHERE user_id = ? 
 		ORDER BY created_at DESC
@@ -391,7 +427,8 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 	var orders []Order
 	for rows.Next() {
 		var order Order
-		if err := rows.Scan(&order.ID, &order.UserID, &order.Status, &order.TotalAmount, &order.Notes, &order.CreatedAt); err != nil {
+		if err := rows.Scan(&order.ID, &order.UserID, &order.Status, &order.TotalAmount,
+			&order.PickupAddress, &order.DeliveryAddress, &order.Notes, &order.CreatedAt); err != nil {
 			continue
 		}
 
@@ -418,6 +455,260 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, orders)
 }
 
+// Admin: Get All Orders
+func getAllOrders(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+		SELECT o.id, o.user_id, o.status, o.total_amount, 
+		       COALESCE(o.pickup_address, ''), COALESCE(o.delivery_address, ''),
+		       COALESCE(o.notes, ''), o.created_at,
+		       u.full_name, u.email, COALESCE(u.phone, ''), COALESCE(u.address, '')
+		FROM orders o
+		JOIN users u ON o.user_id = u.id
+		ORDER BY o.created_at DESC
+	`)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to fetch orders")
+		return
+	}
+	defer rows.Close()
+
+	type AdminOrder struct {
+		Order
+		CustomerName    string `json:"customer_name"`
+		CustomerEmail   string `json:"customer_email"`
+		CustomerPhone   string `json:"customer_phone,omitempty"`
+		CustomerAddress string `json:"customer_address,omitempty"`
+	}
+
+	var orders []AdminOrder
+	for rows.Next() {
+		var order AdminOrder
+		if err := rows.Scan(&order.ID, &order.UserID, &order.Status, &order.TotalAmount,
+			&order.PickupAddress, &order.DeliveryAddress, &order.Notes, &order.CreatedAt,
+			&order.CustomerName, &order.CustomerEmail, &order.CustomerPhone, &order.CustomerAddress); err != nil {
+			continue
+		}
+
+		// Get order items
+		itemRows, err := db.Query(`
+			SELECT oi.id, oi.order_id, oi.laundry_item_id, li.name, oi.quantity, oi.services, oi.item_total
+			FROM order_items oi
+			JOIN laundry_items li ON oi.laundry_item_id = li.id
+			WHERE oi.order_id = ?
+		`, order.ID)
+		if err == nil {
+			defer itemRows.Close()
+			for itemRows.Next() {
+				var item OrderItem
+				if err := itemRows.Scan(&item.ID, &item.OrderID, &item.LaundryItemID, &item.ItemName, &item.Quantity, &item.Services, &item.ItemTotal); err == nil {
+					order.Items = append(order.Items, item)
+				}
+			}
+		}
+
+		orders = append(orders, order)
+	}
+
+	respondJSON(w, http.StatusOK, orders)
+}
+
+// Admin: Update Order Status
+func updateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	orderID := chi.URLParam(r, "orderID")
+	userID, _ := strconv.Atoi(r.Header.Get("X-User-ID"))
+
+	var req struct {
+		Status string `json:"status"`
+		Notes  string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate status
+	validStatuses := []string{"pending", "processing", "ready", "delivered", "cancelled"}
+	isValid := false
+	for _, s := range validStatuses {
+		if req.Status == s {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		respondError(w, http.StatusBadRequest, "Invalid status")
+		return
+	}
+
+	// Get current status for history
+	var oldStatus string
+	err := db.QueryRow("SELECT status FROM orders WHERE id = ?", orderID).Scan(&oldStatus)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Order not found")
+		return
+	}
+
+	// Start transaction
+	tx, err := db.Begin()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update order status")
+		return
+	}
+	defer tx.Rollback()
+
+	// Update order status
+	_, err = tx.Exec("UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?", req.Status, orderID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update order status")
+		return
+	}
+
+	// Record status change in history
+	_, err = tx.Exec(`
+		INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, notes)
+		VALUES (?, ?, ?, ?, ?)
+	`, orderID, oldStatus, req.Status, userID, req.Notes)
+	if err != nil {
+		log.Printf("Failed to record status history: %v", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to commit order status update")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": "Order status updated successfully",
+		"status":  req.Status,
+	})
+}
+
+// Admin: Search Orders
+func searchOrders(w http.ResponseWriter, r *http.Request) {
+	searchTerm := r.URL.Query().Get("q")
+	status := r.URL.Query().Get("status")
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+
+	query := `
+		SELECT o.id, o.user_id, o.status, o.total_amount, 
+		       COALESCE(o.pickup_address, ''), COALESCE(o.delivery_address, ''),
+		       COALESCE(o.notes, ''), o.created_at,
+		       u.full_name, u.email, COALESCE(u.phone, ''), COALESCE(u.address, '')
+		FROM orders o
+		JOIN users u ON o.user_id = u.id
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+
+	if searchTerm != "" {
+		query += ` AND (u.full_name LIKE ? OR u.email LIKE ? OR o.id = ?)`
+		searchPattern := "%" + searchTerm + "%"
+		args = append(args, searchPattern, searchPattern, searchTerm)
+	}
+
+	if status != "" && status != "all" {
+		query += ` AND o.status = ?`
+		args = append(args, status)
+	}
+
+	if startDate != "" {
+		query += ` AND o.created_at >= ?`
+		args = append(args, startDate)
+	}
+
+	if endDate != "" {
+		query += ` AND o.created_at <= ?`
+		args = append(args, endDate)
+	}
+
+	query += ` ORDER BY o.created_at DESC LIMIT 100`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to search orders")
+		return
+	}
+	defer rows.Close()
+
+	type AdminOrder struct {
+		Order
+		CustomerName    string `json:"customer_name"`
+		CustomerEmail   string `json:"customer_email"`
+		CustomerPhone   string `json:"customer_phone,omitempty"`
+		CustomerAddress string `json:"customer_address,omitempty"`
+	}
+
+	var orders []AdminOrder
+	for rows.Next() {
+		var order AdminOrder
+		if err := rows.Scan(&order.ID, &order.UserID, &order.Status, &order.TotalAmount,
+			&order.PickupAddress, &order.DeliveryAddress, &order.Notes, &order.CreatedAt,
+			&order.CustomerName, &order.CustomerEmail, &order.CustomerPhone, &order.CustomerAddress); err != nil {
+			continue
+		}
+
+		// Get order items
+		itemRows, err := db.Query(`
+			SELECT oi.id, oi.order_id, oi.laundry_item_id, li.name, oi.quantity, oi.services, oi.item_total
+			FROM order_items oi
+			JOIN laundry_items li ON oi.laundry_item_id = li.id
+			WHERE oi.order_id = ?
+		`, order.ID)
+		if err == nil {
+			defer itemRows.Close()
+			for itemRows.Next() {
+				var item OrderItem
+				if err := itemRows.Scan(&item.ID, &item.OrderID, &item.LaundryItemID, &item.ItemName, &item.Quantity, &item.Services, &item.ItemTotal); err == nil {
+					order.Items = append(order.Items, item)
+				}
+			}
+		}
+
+		orders = append(orders, order)
+	}
+
+	respondJSON(w, http.StatusOK, orders)
+}
+
+// Admin: Get Statistics
+func getAdminStats(w http.ResponseWriter, r *http.Request) {
+	var stats struct {
+		TotalOrders      int     `json:"total_orders"`
+		PendingOrders    int     `json:"pending_orders"`
+		ProcessingOrders int     `json:"processing_orders"`
+		ReadyOrders      int     `json:"ready_orders"`
+		DeliveredOrders  int     `json:"delivered_orders"`
+		CancelledOrders  int     `json:"cancelled_orders"`
+		TotalRevenue     float64 `json:"total_revenue"`
+		TodayOrders      int     `json:"today_orders"`
+		TotalCustomers   int     `json:"total_customers"`
+	}
+
+	// Total orders
+	db.QueryRow("SELECT COUNT(*) FROM orders").Scan(&stats.TotalOrders)
+
+	// Orders by status
+	db.QueryRow("SELECT COUNT(*) FROM orders WHERE status = 'pending'").Scan(&stats.PendingOrders)
+	db.QueryRow("SELECT COUNT(*) FROM orders WHERE status = 'processing'").Scan(&stats.ProcessingOrders)
+	db.QueryRow("SELECT COUNT(*) FROM orders WHERE status = 'ready'").Scan(&stats.ReadyOrders)
+	db.QueryRow("SELECT COUNT(*) FROM orders WHERE status = 'delivered'").Scan(&stats.DeliveredOrders)
+	db.QueryRow("SELECT COUNT(*) FROM orders WHERE status = 'cancelled'").Scan(&stats.CancelledOrders)
+
+	// Total revenue
+	db.QueryRow("SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status = 'delivered'").Scan(&stats.TotalRevenue)
+
+	// Today's orders
+	db.QueryRow("SELECT COUNT(*) FROM orders WHERE DATE(created_at) = CURDATE()").Scan(&stats.TodayOrders)
+
+	// Total customers
+	db.QueryRow("SELECT COUNT(*) FROM users WHERE role = 'customer'").Scan(&stats.TotalCustomers)
+
+	respondJSON(w, http.StatusOK, stats)
+}
+
 func createOrder(w http.ResponseWriter, r *http.Request) {
 	userID, err := strconv.Atoi(r.Header.Get("X-User-ID"))
 	if err != nil {
@@ -441,9 +732,9 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Insert order
 	result, err := tx.Exec(`
-		INSERT INTO orders (user_id, status, total_amount, notes) 
-		VALUES (?, 'pending', ?, ?)
-	`, userID, req.TotalAmount, req.Notes)
+		INSERT INTO orders (user_id, status, total_amount, pickup_address, delivery_address, notes) 
+		VALUES (?, 'pending', ?, ?, ?, ?)
+	`, userID, req.TotalAmount, req.PickupAddress, req.DeliveryAddress, req.Notes)
 
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to create order")
@@ -487,10 +778,10 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 func getUserByID(id int) (*User, error) {
 	var user User
 	err := db.QueryRow(`
-		SELECT id, email, full_name, COALESCE(phone, ''), COALESCE(address, ''), created_at 
+		SELECT id, email, full_name, COALESCE(phone, ''), COALESCE(address, ''), role, is_active, created_at 
 		FROM users 
 		WHERE id = ?
-	`, id).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.Address, &user.CreatedAt)
+	`, id).Scan(&user.ID, &user.Email, &user.FullName, &user.Phone, &user.Address, &user.Role, &user.IsActive, &user.CreatedAt)
 
 	if err != nil {
 		return nil, err
@@ -503,6 +794,7 @@ func generateToken(user *User) (string, error) {
 	claims := Claims{
 		UserID: user.ID,
 		Email:  user.Email,
+		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

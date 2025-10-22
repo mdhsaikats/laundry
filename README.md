@@ -4,12 +4,21 @@ A modern, full-stack laundry service management application built with pure HTML
 
 ## 🚀 Features
 
+### Customer Portal
 - **User Authentication**: Secure JWT-based authentication with bcrypt password hashing
 - **Item Management**: Browse various laundry items with pricing
 - **Service Selection**: Choose from multiple service types (Wash, Dry Clean, Iron, etc.)
 - **Order Management**: Create and track laundry orders
 - **Order History**: View complete order history with status tracking
 - **Responsive Design**: Beautiful dark-themed UI with Tailwind CSS
+
+### Admin Dashboard
+- **Order Management**: View and manage all customer orders
+- **Real-time Statistics**: Dashboard with order counts and status breakdown
+- **Status Updates**: Update order status (Pending → Processing → Ready → Delivered)
+- **Customer Information**: Access customer details for each order
+- **Order Filtering**: Filter orders by status
+- **Order Details Modal**: Detailed view of each order with all items and services
 
 ## 🛠️ Technology Stack
 
@@ -29,9 +38,14 @@ A modern, full-stack laundry service management application built with pure HTML
 
 ```
 laundry/
-├── index.html              # Main HTML file
+├── index.html              # Main customer-facing HTML file
 ├── styles.css             # Custom CSS styles
 ├── app.js                 # Frontend JavaScript application
+├── admin/                 # Admin dashboard
+│   ├── index.html         # Admin panel HTML
+│   ├── admin.js           # Admin JavaScript
+│   ├── styles.css         # Admin styles
+│   └── README.md          # Admin documentation
 ├── database/
 │   └── schema.sql         # Database schema
 ├── backend/
@@ -119,7 +133,9 @@ npx http-server -p 3000
 php -S localhost:3000
 ```
 
-Then open your browser to `http://localhost:3000`
+Then open your browser to:
+- Customer Portal: `http://localhost:3000`
+- Admin Dashboard: `http://localhost:3000/admin`
 
 ## 📡 API Endpoints
 
@@ -134,7 +150,7 @@ Then open your browser to `http://localhost:3000`
   }
   ```
 
-- `POST /api/auth/login` - Login user
+- `POST /api/auth/login` - Login user (works for both customers and admins)
   ```json
   {
     "email": "user@example.com",
@@ -144,10 +160,21 @@ Then open your browser to `http://localhost:3000`
 
 ### Protected Endpoints (Require JWT Token)
 
+#### Customer Endpoints
 - `GET /api/items` - Get all laundry items
 - `GET /api/services` - Get all services
 - `GET /api/orders` - Get user's orders
 - `POST /api/orders` - Create a new order
+
+#### Admin Endpoints
+- `GET /api/admin/orders` - Get all orders from all customers
+- `PUT /api/admin/orders/:orderID/status` - Update order status
+  ```json
+  {
+    "status": "processing"
+  }
+  ```
+  Valid statuses: `pending`, `processing`, `ready`, `delivered`, `cancelled`
 
 ## 🎨 Design Features
 
@@ -208,6 +235,29 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📄 License
 
 This project is open source and available under the MIT License.
+
+## 🆕 Recent Updates
+
+### Version 2.0 - Enhanced Admin Features
+
+**New Features:**
+- ✅ **Role-Based Access Control**: Admin, customer, and staff roles
+- ✅ **Advanced Search**: Search orders by customer name, email, or ID
+- ✅ **Enhanced Statistics**: Real-time business metrics dashboard
+- ✅ **Order History Tracking**: Audit trail for all status changes
+- ✅ **Performance Optimizations**: Database indexes for faster queries
+- ✅ **Admin Middleware**: Secure admin-only endpoints
+
+**See `IMPLEMENTATION_SUMMARY.md` for complete details!**
+
+## 📖 Documentation
+
+- **README.md** - Main project documentation (this file)
+- **IMPLEMENTATION_SUMMARY.md** - Detailed feature implementation guide
+- **admin/README.md** - Admin dashboard documentation
+- **admin/QUICKSTART.md** - Quick start guide for admin panel
+- **database/MIGRATION_GUIDE.md** - Database migration instructions
+- **backend/README.md** - Backend API documentation
 
 ## 👨‍💻 Author
 

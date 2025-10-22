@@ -13,9 +13,12 @@ CREATE TABLE IF NOT EXISTS users (
     full_name VARCHAR(255),
     phone VARCHAR(50),
     address TEXT,
+    role VARCHAR(20) DEFAULT 'customer' NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_users_email (email)
+    INDEX idx_users_email (email),
+    INDEX idx_users_role (role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Laundry items table
@@ -43,6 +46,8 @@ CREATE TABLE IF NOT EXISTS orders (
     user_id INT NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     total_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    pickup_address TEXT,
+    delivery_address TEXT,
     pickup_date TIMESTAMP NULL,
     delivery_date TIMESTAMP NULL,
     notes TEXT,
@@ -50,6 +55,8 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_orders_user_id (user_id),
     INDEX idx_orders_status (status),
+    INDEX idx_orders_created_at (created_at),
+    INDEX idx_orders_user_status (user_id, status),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -89,3 +96,23 @@ INSERT IGNORE INTO services (name, price_multiplier, description) VALUES
     ('Iron', 0.5, 'Professional ironing and pressing'),
     ('Wash + Iron', 1.3, 'Washing with ironing'),
     ('Dry Clean + Iron', 2.3, 'Dry cleaning with ironing');
+
+-- Order status history table for tracking status changes
+CREATE TABLE IF NOT EXISTS order_status_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    old_status VARCHAR(50),
+    new_status VARCHAR(50) NOT NULL,
+    changed_by INT,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    INDEX idx_order_status_history_order_id (order_id),
+    INDEX idx_order_status_history_changed_at (changed_at),
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Create default admin user (password: admin123 - CHANGE IN PRODUCTION!)
+-- Password hash for 'admin123' using bcrypt cost 10
+INSERT IGNORE INTO users (email, password_hash, full_name, role) VALUES
+    ('admin@laundrypro.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Admin User', 'admin');

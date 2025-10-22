@@ -54,6 +54,12 @@ function setupEventListeners() {
     // Cart actions
     document.getElementById('add-to-cart-btn').addEventListener('click', addToCart);
     document.getElementById('place-order-btn').addEventListener('click', placeOrder);
+    
+    // Same as pickup address
+    document.getElementById('same-as-pickup-btn').addEventListener('click', () => {
+        const pickupAddress = document.getElementById('pickup-address').value;
+        document.getElementById('delivery-address').value = pickupAddress;
+    });
 }
 
 // Authentication
@@ -63,6 +69,8 @@ async function handleAuth(e) {
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
     const fullName = document.getElementById('fullName').value;
+    const phone = document.getElementById('phone').value;
+    const address = document.getElementById('address').value;
     
     setLoading(true, 'auth');
     hideError();
@@ -71,7 +79,7 @@ async function handleAuth(e) {
         const endpoint = state.isLogin ? '/auth/login' : '/auth/register';
         const body = state.isLogin 
             ? { email, password }
-            : { email, password, full_name: fullName };
+            : { email, password, full_name: fullName, phone: phone, address: address };
         
         const response = await fetch(API_URL + endpoint, {
             method: 'POST',
@@ -103,15 +111,21 @@ async function handleAuth(e) {
 function toggleAuthMode() {
     state.isLogin = !state.isLogin;
     const fullnameField = document.getElementById('fullname-field');
+    const phoneField = document.getElementById('phone-field');
+    const addressField = document.getElementById('address-field');
     const authBtnText = document.getElementById('auth-btn-text');
     const toggleBtn = document.getElementById('toggle-auth-mode');
     
     if (state.isLogin) {
         fullnameField.classList.add('hidden');
+        phoneField.classList.add('hidden');
+        addressField.classList.add('hidden');
         authBtnText.textContent = 'Sign In';
         toggleBtn.textContent = "Don't have an account? Sign up";
     } else {
         fullnameField.classList.remove('hidden');
+        phoneField.classList.remove('hidden');
+        addressField.classList.remove('hidden');
         authBtnText.textContent = 'Sign Up';
         toggleBtn.textContent = 'Already have an account? Sign in';
     }
@@ -145,6 +159,9 @@ async function loadAppData() {
         
         renderItems();
         renderServices();
+        
+        // Populate default addresses after data loads
+        populateDefaultAddresses();
     } catch (error) {
         console.error('Error loading data:', error);
     }
@@ -368,56 +385,74 @@ function updateCartTotal() {
 async function placeOrder() {
     if (state.cart.length === 0) return;
     
-    setLoading(true, 'order');
+    const pickupAddress = document.getElementById('pickup-address').value.trim();
+    const deliveryAddress = document.getElementById('delivery-address').value.trim();
+    const notes = document.getElementById('order-notes').value.trim();
+    
+    // Validate addresses
+    if (!pickupAddress) {
+        alert('Please enter a pickup address');
+        document.getElementById('pickup-address').focus();
+        return;
+    }
+    
+    if (!deliveryAddress) {
+        alert('Please enter a delivery address');
+        document.getElementById('delivery-address').focus();
+        return;
+    }
+    
+    setLoading(true, 'place-order');
     
     try {
-        const total = state.cart.reduce((sum, cartItem) => {
-            const serviceMultiplier = cartItem.selectedServices.reduce(
-                (s, service) => s + parseFloat(service.price_multiplier), 0
-            );
-            return sum + parseFloat(cartItem.item.base_price) * cartItem.quantity * serviceMultiplier;
-        }, 0);
-        
-        const notes = document.getElementById('order-notes').value;
+        const totalAmount = state.cart.reduce((sum, item) => sum + item.itemTotal, 0);
         
         const orderData = {
-            total_amount: total,
-            notes: notes || null,
-            items: state.cart.map(cartItem => {
-                const serviceMultiplier = cartItem.selectedServices.reduce(
-                    (s, service) => s + parseFloat(service.price_multiplier), 0
-                );
-                return {
-                    laundry_item_id: cartItem.item.id,
-                    quantity: cartItem.quantity,
-                    services: cartItem.selectedServices.map(s => s.id),
-                    item_total: parseFloat(cartItem.item.base_price) * cartItem.quantity * serviceMultiplier
-                };
-            })
+            total_amount: totalAmount,
+            pickup_address: pickupAddress,
+            delivery_address: deliveryAddress,
+            notes: notes,
+            items: state.cart.map(item => ({
+                laundry_item_id: item.item.id,
+                quantity: item.quantity,
+                services: item.selectedServices.map(s => s.id),
+                item_total: item.itemTotal
+            }))
         };
         
         const response = await fetch(API_URL + '/orders', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${state.token}`
+                'Authorization': `Bearer ${state.token}`,
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(orderData)
         });
         
+        const data = await response.json();
+        
         if (!response.ok) {
-            throw new Error('Failed to place order');
+            throw new Error(data.error || 'Failed to place order');
         }
         
+        // Clear cart and form
         state.cart = [];
         document.getElementById('order-notes').value = '';
         renderCart();
         
+        // Reset addresses to default
+        populateDefaultAddresses();
+        
+        // Show success message
+        alert('Order placed successfully! Order ID: #' + data.id);
+        
+        // Switch to history tab
         switchTab('history');
+        
     } catch (error) {
-        alert('Failed to place order. Please try again.');
+        alert('Error placing order: ' + error.message);
     } finally {
-        setLoading(false, 'order');
+        setLoading(false, 'place-order');
     }
 }
 
@@ -452,8 +487,8 @@ function renderOrders() {
         const statusColors = {
             pending: 'text-yellow-400 bg-yellow-950/30 border-yellow-900/50',
             processing: 'text-blue-400 bg-blue-950/30 border-blue-900/50',
-            ready: 'text-emerald-400 bg-emerald-950/30 border-emerald-900/50',
-            completed: 'text-green-400 bg-green-950/30 border-green-900/50',
+            ready: 'text-purple-400 bg-purple-950/30 border-purple-900/50',
+            delivered: 'text-green-400 bg-green-950/30 border-green-900/50',
             cancelled: 'text-red-400 bg-red-950/30 border-red-900/50'
         };
         
@@ -461,7 +496,7 @@ function renderOrders() {
             pending: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>',
             processing: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>',
             ready: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
-            completed: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
+            delivered: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
             cancelled: '<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>'
         };
         
@@ -475,10 +510,10 @@ function renderOrders() {
         });
         
         return `
-            <div class="bg-zinc-900 rounded-xl p-6 border border-zinc-800">
+            <div class="bg-zinc-900 rounded-xl p-6 border border-zinc-800 mb-6">
                 <div class="flex items-start justify-between mb-4">
                     <div class="flex items-center gap-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${statusColors[order.status].split(' ')[0]}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${(statusColors[order.status] || statusColors.pending).split(' ')[0]}">
                             ${statusIcons[order.status] || statusIcons.pending}
                         </svg>
                         <div>
@@ -486,7 +521,7 @@ function renderOrders() {
                             <p class="text-zinc-400 text-sm">${formattedDate}</p>
                         </div>
                     </div>
-                    <span class="inline-block px-3 py-1 rounded-full text-sm font-medium border capitalize ${statusColors[order.status]}">
+                    <span class="inline-block px-3 py-1 rounded-full text-sm font-medium border capitalize ${statusColors[order.status] || statusColors.pending}">
                         ${order.status}
                     </span>
                 </div>
@@ -507,6 +542,17 @@ function renderOrders() {
                     <div class="mb-4 p-3 bg-zinc-800 rounded-lg border border-zinc-700">
                         <p class="text-sm text-zinc-400">
                             <span class="font-medium text-zinc-300">Notes:</span> ${order.notes}
+                        </p>
+                    </div>
+                ` : ''}
+                
+                ${order.pickup_address ? `
+                    <div class="mb-4 p-3 bg-zinc-800 rounded-lg border border-zinc-700">
+                        <p class="text-sm text-zinc-400 mb-2">
+                            <span class="font-medium text-emerald-400">📍 Pickup:</span> ${order.pickup_address}
+                        </p>
+                        <p class="text-sm text-zinc-400">
+                            <span class="font-medium text-blue-400">📍 Delivery:</span> ${order.delivery_address || 'Same as pickup'}
                         </p>
                     </div>
                 ` : ''}
@@ -532,12 +578,33 @@ function switchTab(tab) {
         historyTab.classList.remove('active');
         newOrderContent.classList.remove('hidden');
         historyContent.classList.add('hidden');
+        populateDefaultAddresses();
     } else {
         newOrderTab.classList.remove('active');
         historyTab.classList.add('active');
         newOrderContent.classList.add('hidden');
         historyContent.classList.remove('hidden');
         loadOrders();
+    }
+}
+
+// Populate default addresses from user profile
+function populateDefaultAddresses() {
+    console.log('Populating addresses, user:', state.user);
+    if (state.user && state.user.address) {
+        const pickupAddress = document.getElementById('pickup-address');
+        const deliveryAddress = document.getElementById('delivery-address');
+        
+        if (pickupAddress && deliveryAddress) {
+            // Always set to default address (user can change if needed)
+            pickupAddress.value = state.user.address;
+            deliveryAddress.value = state.user.address;
+            console.log('Addresses populated with:', state.user.address);
+        } else {
+            console.log('Address elements not found');
+        }
+    } else {
+        console.log('No user address available');
     }
 }
 
@@ -550,6 +617,7 @@ function showAuth() {
 function showApp() {
     document.getElementById('auth-screen').classList.add('hidden');
     document.getElementById('app-screen').classList.remove('hidden');
+    populateDefaultAddresses();
 }
 
 function setLoading(loading, context) {

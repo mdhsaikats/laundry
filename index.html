@@ -24,6 +24,18 @@
                             class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition">
                     </div>
 
+                    <div id="phone-field" class="hidden">
+                        <label for="phone" class="block text-sm font-medium text-zinc-300 mb-2">Phone Number</label>
+                        <input id="phone" type="tel" placeholder="+1 (555) 123-4567"
+                            class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition">
+                    </div>
+
+                    <div id="address-field" class="hidden">
+                        <label for="address" class="block text-sm font-medium text-zinc-300 mb-2">Address</label>
+                        <textarea id="address" rows="2" placeholder="123 Main St, City, State, ZIP"
+                            class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"></textarea>
+                    </div>
+
                     <div>
                         <label for="email" class="block text-sm font-medium text-zinc-300 mb-2">Email</label>
                         <input id="email" type="email" required placeholder="you@example.com"
@@ -175,6 +187,21 @@
                         <div id="cart-items" class="hidden">
                             <div id="cart-list" class="space-y-4 mb-6 max-h-96 overflow-y-auto">
                                 <!-- Cart items will be dynamically loaded here -->
+                            </div>
+
+                            <div class="mb-6">
+                                <label for="pickup-address" class="block text-sm font-medium text-zinc-300 mb-2">Pickup Address *</label>
+                                <textarea id="pickup-address" rows="2" required placeholder="Enter your pickup address..."
+                                    class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"></textarea>
+                            </div>
+
+                            <div class="mb-6">
+                                <label for="delivery-address" class="block text-sm font-medium text-zinc-300 mb-2">Delivery Address *</label>
+                                <textarea id="delivery-address" rows="2" required placeholder="Enter your delivery address (can be same as pickup)..."
+                                    class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"></textarea>
+                                <button type="button" id="same-as-pickup-btn" class="mt-2 text-sm text-emerald-400 hover:text-emerald-300 transition">
+                                    Same as pickup address
+                                </button>
                             </div>
 
                             <div class="mb-6">
