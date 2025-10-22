@@ -1,0 +1,40 @@
+/* Custom Styles for LaundryPro */
+
+.tab-btn {
+    background-color: rgb(24 24 27);
+    color: rgb(161 161 170);
+}
+
+.tab-btn.active {
+    background-color: rgb(5 150 105);
+    color: white;
+}
+
+.tab-btn:hover:not(.active) {
+    background-color: rgb(39 39 42);
+}
+
+/* Smooth transitions */
+* {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgb(24 24 27);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgb(63 63 70);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgb(82 82 91);
+}
