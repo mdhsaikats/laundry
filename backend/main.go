@@ -195,7 +195,7 @@ func initDB() {
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "3306")
 	dbUser := getEnv("DB_USER", "root")
-	dbPassword := getEnv("DB_PASSWORD", "2911")
+	dbPassword := getEnv("DB_PASSWORD", "29112003")
 	dbName := getEnv("DB_NAME", "laundry")
 
 	// MySQL DSN format: username:password@tcp(host:port)/dbname?parseTime=true
